@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta name="robots" content="noindex,nofollow">
-  <title>Family Video Test</title>
+  <title>Galería de Videos Familiares</title>
   <style>
     body {
       font-family: sans-serif;
@@ -16,6 +16,22 @@
       background: #333; color: #fff;
       padding: 1rem; text-align: center;
     }
+    #filters {
+      padding: 1rem;
+      background: #f5f5f5;
+      display: flex; flex-wrap: wrap;
+      gap: 1.5rem; align-items: center;
+    }
+    #filters label {
+      font-size: .9rem;
+      display: flex; flex-direction: column;
+    }
+    #filters select {
+      margin-top: .25rem;
+      padding: .25rem;
+      font-size: 1rem;
+      min-width: 150px;
+    }
     #gallery {
       flex: 1;
       display: grid;
@@ -25,7 +41,6 @@
     .item {
       cursor: pointer;
       text-align: center;
-      text-decoration: none;
       color: inherit;
     }
     .item img {
@@ -63,10 +78,26 @@
 <body>
 
   <header>
-    <h1>Family Videos (Test)</h1>
+    <h1>Galería de Videos Familiares</h1>
   </header>
 
-  <div id="gallery"></div>
+  <!-- Filtros -->
+  <div id="filters">
+    <label>
+      Año
+      <select id="yearSelect">
+        <option value="all">Todos</option>
+      </select>
+    </label>
+    <label>
+      Participante
+      <select id="participantSelect">
+        <option value="all">Todos</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="gallery">Cargando videos…</div>
 
   <div id="modal">
     <div class="close" onclick="closeModal()">×</div>
@@ -74,35 +105,92 @@
   </div>
 
   <script>
-    // 1) Load the JSON metadata
+    // Parse “YYYY”, “YYYY-MM” or “YYYY-MM-DD”
+    function parseRecordedAt(str) {
+      const p = str.split('-').map(n => parseInt(n,10));
+      return new Date(p[0], (p[1]||1) - 1, p[2]||1);
+    }
+
+    let allVideos = [];
+
+    // Carga y prepara filtros/galería
     fetch('videos.json')
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then(videos => {
-        const gallery = document.getElementById('gallery');
-        videos.forEach(video => {
-          const { videoId, recordedAt, participants } = video;
-          // build item
-          const div = document.createElement('div');
-          div.className = 'item';
-          div.innerHTML = `
-            <img src="https://img.youtube.com/vi/${videoId}/mqdefault.jpg" 
-                 alt="Thumbnail for ${videoId}">
-            <div class="title">${videoId}</div>
-            <div class="meta">${recordedAt} — ${participants.join(', ')}</div>
-          `;
-          div.onclick = () => openModal(videoId);
-          gallery.appendChild(div);
+        allVideos = videos.map(v => {
+          const date = parseRecordedAt(v.recordedAt);
+          return { ...v, _date: date, _year: date.getFullYear() };
         });
+        initFilters(allVideos);
+        applyFilters();
       })
-      .catch(err => {
+      .catch(e => {
         document.getElementById('gallery').textContent =
-          'Error loading videos.json: ' + err;
+          'Error al cargar videos.json: ' + e;
       });
 
-    // 2) Modal functions
+    // Inicializa año y participante
+    function initFilters(videos) {
+      const years = videos.map(v => v._year);
+      const minY = Math.min(...years), maxY = Math.max(...years);
+      const ySel = document.getElementById('yearSelect');
+      for (let y = minY; y <= maxY; y++) {
+        ySel.add(new Option(y, y));
+      }
+      ySel.onchange = applyFilters;
+
+      const pSet = new Set();
+      videos.forEach(v => v.participants.forEach(p => pSet.add(p)));
+      const pArr = Array.from(pSet).sort();
+      const pSel = document.getElementById('participantSelect');
+      pArr.forEach(name => {
+        pSel.add(new Option(name, name));
+      });
+      pSel.onchange = applyFilters;
+    }
+
+    // Filtros combinados y render
+    function applyFilters() {
+      const yearVal = document.getElementById('yearSelect').value;
+      const partVal = document.getElementById('participantSelect').value;
+
+      let filtered = allVideos;
+      if (yearVal !== 'all') {
+        filtered = filtered.filter(v => v._year === +yearVal);
+      }
+      if (partVal !== 'all') {
+        filtered = filtered.filter(v => v.participants.includes(partVal));
+      }
+      renderGallery(filtered);
+    }
+
+    // Renderizado de la galería
+    function renderGallery(videos) {
+      const gallery = document.getElementById('gallery');
+      gallery.innerHTML = '';
+      if (videos.length === 0) {
+        gallery.textContent = 'No hay videos para esos filtros.';
+        return;
+      }
+      videos.sort((a,b) => a._date - b._date)
+            .forEach(v => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerHTML = `
+          <img src="https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg" alt="${v.title}">
+          <div class="title">${v.title}</div>
+          <!-- <div class="meta">${v.recordedAt} — ${v.participants.join(', ')}</div> -->
+          <div class="meta">${v.recordedAt}</div>
+        `;
+        div.onclick = () => openModal(v.videoId);
+        gallery.appendChild(div);
+      });
+    }
+
+    // Modal
     function openModal(id) {
-      const player = document.getElementById('player');
-      player.src = `https://www.youtube.com/embed/${id}?autoplay=1`;
+      document.getElementById('player').src =
+        `https://www.youtube.com/embed/${id}?autoplay=1`;
       document.getElementById('modal').style.display = 'flex';
     }
     function closeModal() {
@@ -110,5 +198,6 @@
       document.getElementById('modal').style.display = 'none';
     }
   </script>
+
 </body>
 </html>
